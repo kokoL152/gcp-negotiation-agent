@@ -8,7 +8,7 @@ This project deploys an AI-driven Sales Negotiation Preparation Agent on Google 
 
 This solution leverages the following core GCP services:
 
-* [cite_start]**Cloud Run:** Hosts the containerized Flask application (`get-customer-data-func`) for data retrieval[cite: 2].
+* **Cloud Run:** Hosts the containerized Flask application (`get-customer-data-func`) for data retrieval.
 * **Firestore (Native Mode):** The NoSQL database used to store customer negotiation records.
 * **Gemini API (via Python SDK):** The core intelligence that handles function calling and generates the final strategy report.
 * **Artifact Registry / Container Registry (GCR):** Stores the Docker images built for the Cloud Run service.
