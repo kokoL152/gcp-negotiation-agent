@@ -21,6 +21,7 @@ graph TD
     D -->|4. Return Customer Data| C
     C -->|5. Return Tool Output (Data)| B
     B -->|6. Generate Final Strategy Report| A
+    end
 ```
 ### Component Description:
 
@@ -34,42 +35,42 @@ graph TD
 
 ## ⚙️ Deployment and Setup
 **Prerequisites**
-Terraform Installed
+* Terraform Installed
 
-Git Installed
+* Git Installed
 
-gcloud CLI Installed and configured
+* gcloud CLI Installed and configured
 
-Authentication performed via gcloud auth application-default login.
+* Authentication performed via gcloud auth application-default login.
 
 1. Initialize and Deploy Terraform
 Navigate to the project root directory and run:
 
-Bash
-
-# Initialize the project and download providers
-terraform init
-
-# Deploy GCP resources (Service Account, IAM roles, Cloud Run structure)
-terraform apply
+        Bash
+        
+        # Initialize the project and download providers
+        terraform init
+        
+        # Deploy GCP resources (Service Account, IAM roles, Cloud Run structure)
+        terraform apply
 2. Build and Deploy Docker Image
 The service relies on a Docker image containing the app.py logic.
 
-Bash
-
-# IMPORTANT: Use a unique tag to force Cloud Run to deploy a new revision.
-LATEST_TAG="v20251109-final" 
-
-# 1. Build and push the image to GCR
-gcloud builds submit --tag gcr.io/[YOUR_GCP_PROJECT_ID]/get-customer-data-func:$LATEST_TAG .
-
-# 2. Update the image tag in main.tf and re-apply Terraform 
-#    If you used the :final-fix tag during the troubleshooting process, ensure the main.tf is set to this tag.
-terraform apply
-🧪 Local Agent Test
+    Bash
+    
+        # IMPORTANT: Use a unique tag to force Cloud Run to deploy a new revision.
+        LATEST_TAG="v20251109-final" 
+        
+        # 1. Build and push the image to GCR
+        gcloud builds submit --tag gcr.io/[YOUR_GCP_PROJECT_ID]/get-customer-data-func:$LATEST_TAG .
+        
+        # 2. Update the image tag in main.tf and re-apply Terraform 
+        #    If you used the :final-fix tag during the troubleshooting process, ensure the main.tf is set to this tag.
+            terraform apply
+**🧪 Local Agent Test**
 Once the Cloud Run service is deployed with the correct image, run the local Agent to test the end-to-end functionality:
 
-Bash
-
-python agent_app.py
+        Bash
+        
+        python agent_app.py
 The agent should successfully call the Cloud Run service, retrieve the required customer data, and generate the final negotiation strategy report.
