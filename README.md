@@ -2,6 +2,21 @@
 
 This project deploys an AI-driven Sales Negotiation Preparation Agent on Google Cloud Platform (GCP). The agent utilizes the Gemini model's Function Calling capability to integrate with a custom Cloud Run service for real-time customer data retrieval from Firestore.
 
+---
+
+## ☁️ Google Cloud Services Used
+
+This solution leverages the following core GCP services:
+
+* [cite_start]**Cloud Run:** Hosts the containerized Flask application (`get-customer-data-func`) for data retrieval[cite: 2].
+* **Firestore (Native Mode):** The NoSQL database used to store customer negotiation records.
+* **Gemini API (via Python SDK):** The core intelligence that handles function calling and generates the final strategy report.
+* **Artifact Registry / Container Registry (GCR):** Stores the Docker images built for the Cloud Run service.
+* **IAM (Identity and Access Management):** Manages the **Service Account** and grants it necessary roles (e.g., `roles/datastore.viewer`) to access Firestore.
+* **Cloud Logging:** Used for monitoring and troubleshooting errors, especially Python Tracebacks from the Cloud Run service.
+
+---
+
 ## 🎯 Core Features
 
 * **Gemini Agent (agent_app.py):** Receives negotiation prompts and automatically determines when to fetch necessary customer data.
@@ -9,19 +24,22 @@ This project deploys an AI-driven Sales Negotiation Preparation Agent on Google 
 * **Cloud Run Data Service:** A containerized service (`app.py`) securely retrieves customer negotiation data, purchase history, and price targets from Firestore.
 * **Terraform Infrastructure as Code (IaC):** Manages all core GCP resources (Cloud Run Service, Service Account, IAM permissions).
 
+---
+
+
 ## 🌐 System Architecture Overview
 
 The diagram below illustrates the flow of a user request through the system:
 
 ```mermaid
 graph TD
-    A[Agent App (Local/Client)] -->|1. User Prompt (e.g., "Prepare for Customer C")| B(Google Gemini API)
-    B -->|2. Function Call: getCustomerData('Customer C')| C{Cloud Run Service}
-    C -->|3. Get Data (Firestore Client)| D[Firestore Database ID: 'customers']
+    A[Agent App Client] -->|1. User Prompt | B(Google Gemini API)
+    B -->|2. Function Call: getCustomerData| C{Cloud Run Service}
+    C -->|3. Get Data | D[Firestore Database ]
     D -->|4. Return Customer Data| C
-    C -->|5. Return Tool Output (Data)| B
+    C -->|5. Return Tool Output | B
     B -->|6. Generate Final Strategy Report| A
-    end
+    
 ```
 ### Component Description:
 
@@ -33,6 +51,8 @@ graph TD
 
 * **Firestore Database:** Stores customer negotiation records. The Database ID is configured as customers.
 
+---
+
 ## ⚙️ Deployment and Setup
 **Prerequisites**
 * Terraform Installed
@@ -42,6 +62,8 @@ graph TD
 * gcloud CLI Installed and configured
 
 * Authentication performed via gcloud auth application-default login.
+
+---
 
 1. Initialize and Deploy Terraform
 Navigate to the project root directory and run:
@@ -55,22 +77,28 @@ Navigate to the project root directory and run:
         terraform apply
 2. Build and Deploy Docker Image
 The service relies on a Docker image containing the app.py logic.
-
-    Bash
     
-        # IMPORTANT: Use a unique tag to force Cloud Run to deploy a new revision.
-        LATEST_TAG="v20251109-final" 
+            Bash
         
-        # 1. Build and push the image to GCR
-        gcloud builds submit --tag gcr.io/[YOUR_GCP_PROJECT_ID]/get-customer-data-func:$LATEST_TAG .
-        
-        # 2. Update the image tag in main.tf and re-apply Terraform 
-        #    If you used the :final-fix tag during the troubleshooting process, ensure the main.tf is set to this tag.
-            terraform apply
-**🧪 Local Agent Test**
+            # IMPORTANT: Use a unique tag to force Cloud Run to deploy a new revision.
+            LATEST_TAG="v20251109-final" 
+            
+            # 1. Build and push the image to GCR
+            gcloud builds submit --tag gcr.io/[YOUR_GCP_PROJECT_ID]/get-customer-data-func:$LATEST_TAG .
+            
+            # 2. Update the image tag in main.tf and re-apply Terraform 
+            #    If you used the :final-fix tag during the troubleshooting process, ensure the main.tf is set to this tag.
+                terraform apply
+
+---
+
+## 🧪 Local Agent Test
+
 Once the Cloud Run service is deployed with the correct image, run the local Agent to test the end-to-end functionality:
 
         Bash
         
         python agent_app.py
+
+        
 The agent should successfully call the Cloud Run service, retrieve the required customer data, and generate the final negotiation strategy report.
