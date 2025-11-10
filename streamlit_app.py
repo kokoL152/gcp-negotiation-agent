@@ -18,10 +18,56 @@ import google.auth
 import google.auth.transport.requests
 
 # --- 1. Config ---
-PROJECT_ID = "eighth-pen-476811-f3" 
 DATABASE_ID = "customers"
+PROJECT_ID = "eighth-pen-476811-f3" 
+
 REGION = "asia-northeast1" 
 CUSTOMER_DATA_SERVICE_URL = "https://get-customer-data-func-ldthooojxq-an.a.run.app" 
+
+# --- ↓↓↓ Roadmap ↓↓↓ ---
+def draw_roadmap(current_step):
+    """
+    Guideline Roadmap
+    """
+    st.subheader("Guide to your negotiation report")
+    
+    # 使用列布局来创建步骤
+    col1, col2, col3 = st.columns(3)
+
+    def draw_inactive_box(text):
+        st.container(border=True).markdown(f"<div style='padding: 0.1em;'>{text}</div>", unsafe_allow_html=True)
+
+    # ----------------- Step 1: login -----------------
+    with col1:
+        if current_step == "login":
+            # 当前活跃步骤
+            st.info("**(1) Log into GCP**", icon="1️⃣")
+        else:
+            # 已完成的步骤
+            st.success("**(1) Log into GCP**", icon="✅")
+
+    # ----------------- Step 2: parameters -----------------
+    with col2:
+        if current_step == "login":
+            # 尚未开始
+            draw_inactive_box("**(2) Select customers and purpose**")
+        elif current_step == "select":
+            # 当前活跃步骤
+            st.info("**(2) Select customers and purpose**", icon="2️⃣")
+        else: # (current_step == "view")
+            # 已完成
+            st.success("**(2) Select customers and purpose**", icon="✅")
+
+    # ----------------- Step 3: Check reports -----------------
+    with col3:
+        if current_step == "view":
+            # 当前活跃步骤
+            st.info("**(3) Check reports**", icon="3️⃣")
+        else:
+            # 尚未开始
+            draw_inactive_box("**(3) Check reports**")
+    
+    st.divider()
 
 # --- 2. Initialize ---
 # Prevent reconnection everytime
@@ -77,6 +123,8 @@ def init_clients(uploaded_credentials_json=None):
         st.session_state.db_client = db
         st.session_state.genai_client = genai_client
         st.session_state.clients_initialized = True
+        #update on status
+        st.session_state.app_step = "select"
         st.rerun()
 
     except Exception as e:
@@ -375,6 +423,13 @@ def run_visualization_agent(client: genai.Client, customer_name: str, report_tex
 # --- 5. Streamlit Interface ---
 st.set_page_config(layout="wide")
 st.title("Sales Negotiation Strategy Agent 📈")
+
+if "clients_initialized" not in st.session_state:
+    st.session_state.clients_initialized = False
+    
+if "app_step" not in st.session_state:
+    st.session_state.app_step = "login"
+
 # st.markdown("This tool connects to Google Firestore database，using Gemini Agent analysing customer data，and generate a negotiation strategy report with charts")
 if "clients_initialized" not in st.session_state:
     st.session_state.clients_initialized = False
@@ -382,7 +437,7 @@ if "clients_initialized" not in st.session_state:
 if not st.session_state.clients_initialized:
     st.header("🔗 Please connect to your GCP Project")
     st.markdown("""
-    You need credentials to Firestore & Vertex AI。
+    You need credentials for connecting to Firestore & Vertex AI。
     
     **Option 1: (recommended) upload Service Account JSON**
     
@@ -396,10 +451,12 @@ if not st.session_state.clients_initialized:
     st.divider()
 
     if st.button("Use uploaded JSON to connect", type="primary", disabled=(uploaded_key is None)):
-        init_clients(uploaded_key)
+        with st.spinner("Using JSON key connecting..."): 
+            init_clients(uploaded_key)
 
     if st.button("Use gcloud credentials to connect (Opt 2)"):
-        init_clients(None) # 传入 None 来触发默认凭证
+        with st.spinner("Using local credentials connecting..."): 
+            init_clients(None) # 传入 None 来触发默认凭证
 
 # try:
 #     db_client, genai_client = init_clients()
@@ -411,6 +468,8 @@ else:
     # --- 从 session_state 中拉取已初始化的客户端 ---
     db_client = st.session_state.db_client
     genai_client = st.session_state.genai_client
+    
+    draw_roadmap(st.session_state.app_step)
 
     st.markdown("This tool connects to Google Firestore database，using Gemini Agent analysing customer data，and generate a negotiation strategy report with charts")
 # --- 侧边栏：输入控件 ---
@@ -418,6 +477,7 @@ else:
         st.header("📊 Negotiation Report Generator")
         st.markdown(f"**Project:** `{st.session_state.project_id}`")
         
+
         customer_list = get_customer_list(db_client)
         if not customer_list:
             st.error("Cannot load customer list, please check Firestore connection and content")
@@ -438,9 +498,22 @@ else:
 
             # Run button
             generate_button = st.button("🚀 Generate Negotiation Report", type="primary", use_container_width=True)
-
+            if generate_button:
+                # when button clicked, we update status
+                st.session_state.app_step = "view"
 # --- Show results ---
 if 'generate_button' in locals() and generate_button:
+    
+    if st.session_state.app_step == "select":
+        st.info("You're Logged in！ Please use **Left Side Bar**Select Customer and Purpose，Then click“Generate Report”。", icon="⬅️")
+
+    
+    if 'generate_button' in locals() and generate_button:
+        final_prompt = f"""
+        Generate a negotiation strategy report for {selected_customer}.
+        ... (您的 Prompt) ...
+        """
+
     # 1. Final Prompt
     final_prompt = f"""
     Generate a negotiation strategy report for {selected_customer}.
@@ -476,7 +549,7 @@ if 'generate_button' in locals() and generate_button:
             status.update(label=f"Failed generating report: {e}", state="error")
 
 # 4. 在按钮点击之外显示报告 (这样它会保持在页面上)
-if 'html_report' in st.session_state:
+if st.session_state.app_step == "view" and 'html_report' in st.session_state:
     st.header(f"Strategy Report: {st.session_state.report_customer}")
     
     # 提供下载按钮
