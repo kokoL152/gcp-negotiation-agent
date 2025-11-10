@@ -7,6 +7,7 @@ import re
 import subprocess
 import datetime
 import matplotlib 
+import tempfile
 
 # GCP & GenAI
 from google.cloud import firestore
@@ -24,26 +25,64 @@ CUSTOMER_DATA_SERVICE_URL = "https://get-customer-data-func-ldthooojxq-an.a.run.
 
 # --- 2. Initialize ---
 # Prevent reconnection everytime
-@st.cache_resource
-def init_clients():
+@st.cache_resource(ttl=600)
+def init_clients(uploaded_credentials_json=None):
    
     try:
+        db_creds = None
+        genai_creds = None
+        target_project_id = PROJECT_ID 
+        
+        if uploaded_credentials_json:
+            st.write("Uploading Service Account JSON...")
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".json") as temp_file:
+                temp_file.write(uploaded_credentials_json.getvalue())
+                temp_file_path = temp_file.name
+            
+            # Load credentials
+            db_creds = google.auth.load_credentials_from_file(temp_file_path)[0]
+            genai_creds = google.auth.load_credentials_from_file(temp_file_path)[0]
+            
+            # Read Project ID
+            with open(temp_file_path, 'r') as f:
+                creds_data = json.load(f)
+                target_project_id = creds_data.get('project_id', PROJECT_ID)
+            
+            os.remove(temp_file_path)
+            st.session_state.project_id = target_project_id 
+        else:
+            st.write("Trying local 'gcloud auth application-default login' credentials...")
+            # 尝试默认凭证
+            credentials, project_or_none = google.auth.default()
+            db_creds = credentials
+            genai_creds = credentials
+            if project_or_none:
+                st.session_state.project_id = project_or_none
+            else:
+                 st.session_state.project_id = PROJECT_ID
+        
         # 1. Firestore 
-        db = firestore.Client(project=PROJECT_ID, database=DATABASE_ID)
+        db = firestore.Client(project=st.session_state.project_id, database=DATABASE_ID, credentials=db_creds)
         
         # 2. GenAI 
-        credentials, project_or_none = google.auth.default()
+        # credentials, project_or_none = google.auth.default()
         genai_client = genai.Client(
             vertexai=True,
-            project=PROJECT_ID, 
+            project=st.session_state.project_id, 
             location=REGION,
-            credentials=credentials
+            credentials=genai_creds
         )
-        st.success("✅ Successfully connect to Firestore & Vertex AI Gemini")
-        return db, genai_client
+        st.success("✅ Successfully connect to Firestore & Vertex AI Gemini (Project: {target_project_id})")
+        # return db, genai_client
+        st.session_state.db_client = db
+        st.session_state.genai_client = genai_client
+        st.session_state.clients_initialized = True
+        st.rerun()
+
     except Exception as e:
         st.error(f"❌ Failed initialized: {e}")
-        st.stop()
+        st.error("Make sure 'gcloud auth application-default login' is running，or uploaded active Service Account JSON。")
+        # st.stop()
 
 # --- 3. get customer list  ---
 # cache data for 10mins
@@ -101,6 +140,9 @@ def run_agent_chat(client: genai.Client, prompt: str, st_status_container):
                           "You MUST perform all analysis and generate the FINAL report entirely IN ENGLISH. "
                           "You MUST use the 'getCustomerData' tool to retrieve customer data. "
                           "After retrieving the data, you must analyze the last deal's outcome and price targets "
+                          "**Crucially, you MUST also provide a 'Predicted Deal Price' (a single numerical value) "
+                          "based on the purchase history, purchased_price, current targets, and negotiation style. "
+                          "Include this prediction clearly in your text report (e.g., 'Predicted Deal Price: $XXXXX').**"
                           "to generate a structured negotiation strategy focused on maximizing profit margin. "
                           "If the tool execution fails, you must inform the user and stop.")
     
@@ -208,6 +250,9 @@ def run_visualization_agent(client: genai.Client, customer_name: str, report_tex
     4.  Target Line: Draw a horizontal dashed line for 'current_target_price' (or 'Target_Price_USD').
     5.  Cost Line: Draw a horizontal dashed line for 'current_cost_price' (or 'Baseline_Price_USD').
     6.  Profit Zone: Create a shaded green area (using plt.fill_between) between the cost and target lines.
+    7.  **Predicted Price:** Look for the 'Predicted Deal Price: $...' in the report text. 
+        If found, plot this value as a **single, highly visible horizontal line**. 
+        Use a distinct color (e.g., 'gold' or 'red') and label it 'Predicted Price' in the legend.
 
     Python Script Requirements:
     1.  Code Only: Respond ONLY with Python code in ```python ... ```.
@@ -327,50 +372,82 @@ def run_visualization_agent(client: genai.Client, customer_name: str, report_tex
     # --- output： return HTML ---
     return generate_html_report(customer_name, styled_report_html, image_base64)
 
-# --- 5. Streamlit interface ---
+# --- 5. Streamlit Interface ---
 st.set_page_config(layout="wide")
 st.title("Sales Negotiation Strategy Agent 📈")
-st.markdown("This tool connects to Google Firestore database，using Gemini Agent analysing customer data，and generate a negotiation strategy report with charts")
+# st.markdown("This tool connects to Google Firestore database，using Gemini Agent analysing customer data，and generate a negotiation strategy report with charts")
+if "clients_initialized" not in st.session_state:
+    st.session_state.clients_initialized = False
 
+if not st.session_state.clients_initialized:
+    st.header("🔗 Please connect to your GCP Project")
+    st.markdown("""
+    You need credentials to Firestore & Vertex AI。
+    
+    **Option 1: (recommended) upload Service Account JSON**
+    
+    
+    **Option 2: (local) use gcloud credentials**
+    If local, please run `gcloud auth application-default login`。
+    """)
 
-try:
-    db_client, genai_client = init_clients()
-except Exception:
-    st.error("Can not initialize, please check your GCP authentication (gcloud auth application-default login) ")
-    st.stop()
+    uploaded_key = st.file_uploader("Upload Service Account JSON (Opt 1)", type="json")
+    
+    st.divider()
 
+    if st.button("Use uploaded JSON to connect", type="primary", disabled=(uploaded_key is None)):
+        init_clients(uploaded_key)
+
+    if st.button("Use gcloud credentials to connect (Opt 2)"):
+        init_clients(None) # 传入 None 来触发默认凭证
+
+# try:
+#     db_client, genai_client = init_clients()
+# except Exception:
+#     st.error("Can not initialize, please check your GCP authentication (gcloud auth application-default login) ")
+#     st.stop()
+
+else:
+    # --- 从 session_state 中拉取已初始化的客户端 ---
+    db_client = st.session_state.db_client
+    genai_client = st.session_state.genai_client
+
+    st.markdown("This tool connects to Google Firestore database，using Gemini Agent analysing customer data，and generate a negotiation strategy report with charts")
 # --- 侧边栏：输入控件 ---
-with st.sidebar:
-    st.header("📊 Negotiation Report Generator")
-    
-    
-    customer_list = get_customer_list(db_client)
-    if not customer_list:
-        st.error("Can not load customer list, please check Firestore connection and content")
-    else:
-        selected_customer = st.selectbox(
-            "1. choose target customer",
-            options=customer_list,
-            index=0,
-            help="This list collects from your Firestore 'customers' collection"
-        )
+    with st.sidebar:
+        st.header("📊 Negotiation Report Generator")
+        st.markdown(f"**Project:** `{st.session_state.project_id}`")
         
-        # Negotiation purpose Textbox
-        purpose = st.text_input(
-            "2. input purpose",
-            value="Focus on maximizing profit margin",
-            help="Example：'Focus on upselling high-tier products', 'Prioritize closing the deal quickly'"
-        )
+        customer_list = get_customer_list(db_client)
+        if not customer_list:
+            st.error("Cannot load customer list, please check Firestore connection and content")
+        else:
+            selected_customer = st.selectbox(
+                "1. Choose target customer",
+                options=customer_list,
+                index=0,
+                help="This list collects from your Firestore 'customers' collection"
+            )
+            
+            # Negotiation purpose Textbox
+            purpose = st.text_input(
+                "2. Input negotiation target",
+                value="Focus on maximizing profit margin",
+                help="Example：'Focus on upselling high-tier products', 'Prioritize closing the deal quickly'"
+            )
 
-        # Run button
-        generate_button = st.button("🚀 Generate negotiation report", type="primary", use_container_width=True)
+            # Run button
+            generate_button = st.button("🚀 Generate Negotiation Report", type="primary", use_container_width=True)
 
 # --- Show results ---
-if generate_button and 'selected_customer' in locals():
-    # 1. final Prompt
+if 'generate_button' in locals() and generate_button:
+    # 1. Final Prompt
     final_prompt = f"""
     Generate a negotiation strategy report for {selected_customer}.
     The negotiation purpose is: {purpose}.
+    **Crucially, you MUST also provide a 'Predicted Deal Price' (a single numerical value) 
+    based on the purchase history, current targets, and negotiation style. 
+    Include this prediction clearly in your text report (e.g., 'Predicted Deal Price: $XXXXX').**
     """
     
     # 2. 运行 Agent 流程
@@ -387,7 +464,6 @@ if generate_button and 'selected_customer' in locals():
                 html_report = run_visualization_agent(genai_client, selected_customer, report_text, status)
                 
                 # 3. save results
-            
                 st.session_state.html_report = html_report
                 st.session_state.report_customer = selected_customer
                 
